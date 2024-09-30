@@ -70,6 +70,7 @@ class Manager {
      * * `fixture`: contains model fixture data
      *
      * @param {object} config Contructor options with the following keys:
+     *   * `modelStore`:   The object to store the reference to models
      *   * `modeldir`:     The path which contains models will be looked for
      *   * `extensiondir`: The extension directory, will use `modeldir/extension` if not specified
      *   * `hookdir`:      The hook directory, will use `modeldir/hook` if not specified
@@ -85,6 +86,7 @@ class Manager {
             throw new Error('Contructor options modeldir is mandatory and the path must exists!');
         }
         this.config = config;
+        this.modelStore = config.modelStore;
         this.modelDir = config.modeldir;
         this.extensionDir = config.extensiondir || path.join(this.modelDir, 'extension');
         this.fixtureDir = config.fixturedir || path.join(this.modelDir, 'fixture');
@@ -234,6 +236,9 @@ class Manager {
                         // add model reference
                         model.db = this;
                         this[modelName] = model;
+                        if (typeof this.modelStore === 'object') {
+                            this.modelStore[modelName] = model;
+                        }
                         // define model as property
                         if (this.db.models[modelName] === undefined) {
                             Object.defineProperty(this.db.models, modelName, {value: model, writable: false});
