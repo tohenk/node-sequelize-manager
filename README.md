@@ -40,7 +40,7 @@ An example usage of Sequelize Model Manager shown below:
 
 ```js
 
-const SequelizeManager = require('./sequelize-manager');
+const SequelizeManager = require('@ntlab/sequelize-manager');
 
 const db = new SequelizeManager({
     modeldir: path.join(__dirname, 'model'),
