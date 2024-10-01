@@ -155,19 +155,23 @@ class Manager {
     loadAddons() {
         return new Promise((resolve, reject) => {
             this.addons = [];
-            fs.readdir(this.addonDir, (err, files) => {
-                if (err) {
-                    return reject(err);
-                }
-                files.forEach(file => {
-                    if (file.endsWith('.js')) {
-                        const addon = require(path.join(this.addonDir, file.substring(0, file.length - 3)));
-                        this.addons.push(addon);
-                        debug(`Found addon ${addon.name}`);
+            if (fs.existsSync(this.addonDir)) {
+                fs.readdir(this.addonDir, (err, files) => {
+                    if (err) {
+                        return reject(err);
                     }
+                    files.forEach(file => {
+                        if (file.endsWith('.js')) {
+                            const addon = require(path.join(this.addonDir, file.substring(0, file.length - 3)));
+                            this.addons.push(addon);
+                            debug(`Found addon ${addon.name}`);
+                        }
+                    });
+                    resolve();
                 });
+            } else {
                 resolve();
-            });
+            }
         });
     }
 
