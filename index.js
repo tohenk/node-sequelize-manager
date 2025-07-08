@@ -26,7 +26,7 @@ const fs = require('fs');
 const path = require('path');
 const Work = require('@ntlab/work/work');
 const Queue = require('@ntlab/work/queue');
-const { Sequelize, Model, BelongsToAssociation } = require('@sequelize/core');
+const { Sequelize, DataTypes, Model, BelongsToAssociation } = require('@sequelize/core');
 const debug = require('debug')('sequelize:manager');
 
 /**
@@ -55,6 +55,18 @@ const debug = require('debug')('sequelize:manager');
 class Manager {
 
     config = {}
+    metadb = 'vtbl'
+    vertbl = {
+        Name: {
+            type: DataTypes.STRING(20),
+            columnName: 'Name',
+            primaryKey: true
+        },
+        Value: {
+            type: DataTypes.INTEGER,
+            columnName: 'Value'
+        }
+    }
 
     /**
      * Constructor.
@@ -68,18 +80,18 @@ class Manager {
      * * `extend`: contains model static and instance extension
      * * `addon`: contains addons handler
      * * `fixture`: contains model fixture data
+     * * `migration`: contains model migrations
      *
-     * @param {object} config Contructor options with the following keys:
-     *   * `modelStore`:   The object to store the reference to models
-     *   * `modeldir`:     The path which contains models will be looked for
-     *   * `extensiondir`: The extension directory, will use `modeldir/extension` if not specified
-     *   * `hookdir`:      The hook directory, will use `modeldir/hook` if not specified
-     *   * `datadir`:      The data directory, will use `modeldir/data` if not specified
-     *   * `extenddir`:    The extend directory, will use `modeldir/extend` if not specified
-     *   * `addondir`:     The addon directory, will use `modeldir/addon` if not specified
-     *   * `fixturedir`:   The fixture directory, will use `modeldir/fixture` if not specified
-     * @param {string} config.modeldir
-     * @param {string|undefined} config.fixturedir
+     * @param {object} config Contructor options
+     * @param {object} config.modelStore The object to store the reference to models
+     * @param {string} config.modeldir The path for models which will be looked for
+     * @param {string} config.extensiondir The extension directory, will use `modeldir/extension` if not specified
+     * @param {string} config.hookdir The hook directory, will use `modeldir/hook` if not specified
+     * @param {string} config.datadir The data directory, will use `modeldir/data` if not specified
+     * @param {string} config.extenddir The extend directory, will use `modeldir/extend` if not specified
+     * @param {string} config.addondir The addon directory, will use `modeldir/addon` if not specified
+     * @param {string} config.fixturedir The fixture directory, will use `modeldir/fixture` if not specified
+     * @param {string} config.migrationdir The migration directory, will use `modeldir/migration` if not specified
      */
     constructor(config) {
         if (!fs.existsSync(config.modeldir)) {
@@ -94,6 +106,7 @@ class Manager {
         this.dataDir = config.datadir || path.join(this.modelDir, 'data');
         this.extendDir = config.extenddir || path.join(this.modelDir, 'extend');
         this.addonDir = config.addondir || path.join(this.modelDir, 'addon');
+        this.migrationDir = config.migrationdir || path.join(this.modelDir, 'migration');
     }
 
     /**
@@ -109,7 +122,7 @@ class Manager {
      * Initialize Sequelize.
      *
      * @param {object} options Sequelize contructor options
-     * @returns {Promise}
+     * @returns {Promise<void>}
      */
     init(options) {
         this.db = new Sequelize(options);
@@ -128,6 +141,7 @@ class Manager {
             });
         }
         return Work.works([
+            [w => this.createDbMetadata()],
             [w => this.loadLifecycles()],
             [w => this.loadAddons()],
             [w => this.loadModels()],
@@ -138,7 +152,7 @@ class Manager {
     /**
      * Connect to database.
      *
-     * @returns {Promise}
+     * @returns {Promise<void>}
      */
     connectDatabase() {
         return Work.works([
@@ -148,9 +162,92 @@ class Manager {
     }
 
     /**
+     * Create database metadata.
+     *
+     * @returns {Promise<void>}
+     */
+    createDbMetadata() {
+        return new Promise((resolve, reject) => {
+            if (fs.existsSync(this.migrationDir)) {
+                this[this.metadb] = this.getSequelize()
+                    .define(this.metadb, this.vertbl, {
+                        modelName: this.metadb,
+                        tableName: `_${this.metadb}`,
+                        timestamps: false,
+                        underscored: false,
+                    });
+            }
+            resolve();
+        });
+    }
+
+    /**
+     * Run database migration.
+     *
+     * @returns {Promise<void>}
+     */
+    runMigration() {
+        if (fs.existsSync(this.migrationDir)) {
+            const KEY = 'DB';
+            return Work.works([
+                [w => this[this.metadb].findOne({Name: KEY})],
+                [w => Promise.resolve(w.getRes(0) ? w.getRes(0).Value : 0)],
+                [w => Promise.resolve(fs.readdirSync(this.migrationDir, {withFileTypes: true})
+                    .filter(f => f.isDirectory() && !isNaN(f.name) && parseInt(f.name) > w.getRes(1))
+                    .sort((a, b) => parseInt(a.name) - parseInt(b.name)))],
+                [w => new Promise((resolve, reject) => {
+                    const dirs = w.getRes(2);
+                    let lastver;
+                    const q = new Queue([...dirs], f => {
+                        lastver = parseInt(f.name);
+                        this.runMigrationInDir(path.join(f.parentPath, f.name))
+                            .then(() => q.next())
+                            .catch(err => reject(err));
+                    });
+                    q.once('done', () => resolve(lastver));
+                })],
+                [w => Promise.resolve(w.getRes(0) ?? this[this.metadb].build({Name: KEY})), w => w.getRes(3) !== undefined],
+                [w => Promise.resolve(w.getRes(4).Value = w.getRes(3)), w => w.getRes(3) !== undefined],
+                [w => w.getRes(4).save(), w => w.getRes(3) !== undefined],
+            ]);
+        } else {
+            return Promise.resolve();
+        }
+    }
+
+    /**
+     * Run all migration found on specified directory.
+     *
+     * @param {string} dir Migration directory
+     * @returns {Promise<void>}
+     */
+    runMigrationInDir(dir) {
+        return Work.works([
+            [w => Promise.resolve(fs.readdirSync(dir, {withFileTypes: true})
+                .filter(f => f.isFile() && f.name.endsWith('.js'))
+                .sort((a, b) => a.name.localeCompare(b.name)))],
+            [w => new Promise((resolve, reject) => {
+                const files = w.getRes(0);
+                const q = new Queue([...files], f => {
+                    const migration = require(path.join(f.parentPath, f.name.substring(0, f.name.length - 3)));
+                    if (typeof migration === 'function') {
+                        debug(`Running migration ${path.join(f.parentPath, f.name)}`);
+                        migration(this.db.getQueryInterface())
+                            .then(() => q.next())
+                            .catch(err => reject(err));
+                    } else {
+                        q.next();
+                    }
+                });
+                q.once('done', () => resolve());
+            })]
+        ]);
+    }
+
+    /**
      * Load addons.
      *
-     * @returns {Promise}
+     * @returns {Promise<void>}
      */
     loadAddons() {
         return new Promise((resolve, reject) => {
@@ -178,7 +275,7 @@ class Manager {
     /**
      * Load all models.
      *
-     * @returns {Promise}
+     * @returns {Promise<void>}
      */
     loadModels() {
         return new Promise((resolve, reject) => {
@@ -258,7 +355,7 @@ class Manager {
     /**
      * Associates loaded models.
      *
-     * @returns {Promise}
+     * @returns {Promise<void>}
      */
     associates() {
         return new Promise((resolve, reject) => {
@@ -274,7 +371,7 @@ class Manager {
     /**
      * Load lifecycles data for models.
      *
-     * @returns {Promise}
+     * @returns {Promise<void>}
      */
     loadLifecycles() {
         return new Promise((resolve, reject) => {
@@ -302,7 +399,7 @@ class Manager {
     /**
      * Populate model fixtures.
      *
-     * @returns {Promise}
+     * @returns {Promise<void>}
      */
     loadFixtures() {
         return new Promise((resolve, reject) => {
@@ -328,7 +425,7 @@ class Manager {
      *
      * @param {Model} model Sequelize model
      * @param {object} values Row values
-     * @returns {Promise}
+     * @returns {Promise<void>}
      */
     populateData(model, values) {
         return new Promise((resolve, reject) => {
@@ -357,7 +454,7 @@ class Manager {
      * @param {object} options Synchronization options
      * @param {boolean} options.force Recreate table
      * @param {boolean} options.alter Perform table alter
-     * @returns {Promise}
+     * @returns {Promise<void>}
      */
     syncModels(options = {}) {
         options = options || {};
@@ -378,7 +475,7 @@ class Manager {
      * @param {object} options Synchronization options
      * @param {boolean} options.force Recreate table
      * @param {boolean} options.alter Perform table alter
-     * @returns {Promise}
+     * @returns {Promise<void>}
      */
     syncModel(model, options = {}) {
         options = options || {};
