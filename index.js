@@ -1,7 +1,7 @@
 /**
  * The MIT License (MIT)
  *
- * Copyright (c) 2024 Toha <tohenk@yahoo.com>
+ * Copyright (c) 2024-2025 Toha <tohenk@yahoo.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -234,7 +234,7 @@ class Manager {
                         // check if fixture exist
                         const fixture = path.join(this.fixtureDir, modelName + '.json');
                         if (fs.existsSync(fixture)) {
-                            this.fixtures.push({model: model, fixture: fixture});
+                            this.fixtures.push({model, fixture});
                             features.fixture = true;
                         }
                         // add model reference
@@ -332,7 +332,7 @@ class Manager {
      */
     populateData(model, values) {
         return new Promise((resolve, reject) => {
-            let n = values.length;
+            const n = values.length;
             let i = 0, progress = 0;
             const q = new Queue(values, value => {
                 const p = Math.floor(++i / n * 100);
@@ -354,13 +354,16 @@ class Manager {
     /**
      * Synchronize models.
      *
-     * @param {boolean} force Force synchronization
+     * @param {object} options Synchronization options
+     * @param {boolean} options.force Recreate table
+     * @param {boolean} options.alter Perform table alter
      * @returns {Promise}
      */
-    syncModels(force = false) {
+    syncModels(options = {}) {
+        options = options || {};
         return new Promise((resolve, reject) => {
             const q = new Queue(this.db.models.getModelsTopoSortedByForeignKey(), model => {
-                this.syncModel(model, force)
+                this.syncModel(model, options)
                     .then(() => q.next())
                     .catch(err => reject(err));
             });
@@ -372,10 +375,13 @@ class Manager {
      * Synchronize model.
      *
      * @param {Model} model Sequelize model
-     * @param {*} force Force synchronization
+     * @param {object} options Synchronization options
+     * @param {boolean} options.force Recreate table
+     * @param {boolean} options.alter Perform table alter
      * @returns {Promise}
      */
-    syncModel(model, force = false) {
+    syncModel(model, options = {}) {
+        options = options || {};
         if (!this.syncs) {
             this.syncs = [];
         }
@@ -386,13 +392,13 @@ class Manager {
                 [w => Promise.resolve(this.getModelReferences(model))],
                 [w => new Promise((resolve, reject) => {
                     const q = new Queue(w.res, m => {
-                        this.syncModel(this.db.models[m], force)
+                        this.syncModel(this.db.models[m], options)
                             .then(() => q.next())
                             .catch(err => reject(err));
                     });
                     q.once('done', () => resolve());
                 })],
-                [w => model.sync({force: force})],
+                [w => model.sync(options)],
                 [w => Promise.resolve(this.syncs.push(model))],
             ]);
         }
