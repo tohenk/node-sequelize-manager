@@ -200,7 +200,7 @@ class Manager {
                     let lastver;
                     const q = new Queue([...dirs], f => {
                         lastver = parseInt(f.name);
-                        this.runMigrationInDir(path.join(f.parentPath, f.name))
+                        this.runMigrationInDir(path.join(this.migrationDir, f.name))
                             .then(() => q.next())
                             .catch(err => reject(err));
                     });
@@ -229,9 +229,9 @@ class Manager {
             [w => new Promise((resolve, reject) => {
                 const files = w.getRes(0);
                 const q = new Queue([...files], f => {
-                    const migration = require(path.join(f.parentPath, f.name.substring(0, f.name.length - 3)));
+                    const migration = require(path.join(dir, f.name.substring(0, f.name.length - 3)));
                     if (typeof migration === 'function') {
-                        debug(`Running migration ${path.join(f.parentPath, f.name)}`);
+                        debug(`Running migration ${path.join(dir, f.name)}`);
                         migration(this.db.getQueryInterface())
                             .then(() => q.next())
                             .catch(err => reject(err));
