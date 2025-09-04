@@ -176,8 +176,12 @@ class Manager {
                         timestamps: false,
                         underscored: false,
                     });
+                this.syncModel(this[this.metadb])
+                    .then(() => resolve())
+                    .catch(err => reject(err));
+            } else {
+                resolve();
             }
-            resolve();
         });
     }
 
@@ -232,7 +236,7 @@ class Manager {
                     const migration = require(path.join(dir, f.name.substring(0, f.name.length - 3)));
                     if (typeof migration === 'function') {
                         debug(`Running migration ${path.join(dir, f.name)}`);
-                        migration(this.db.getQueryInterface())
+                        migration(this.db.queryInterface)
                             .then(() => q.next())
                             .catch(err => reject(err));
                     } else {
