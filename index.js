@@ -297,23 +297,22 @@ class Manager {
                     if (file.endsWith('.js')) {
                         const modelName = file.substring(0, file.length - 3);
                         const features = {};
-                        let attributes, options;
+                        let attrCallback, optCallback;
                         // load attribute extension
                         if (fs.existsSync(path.join(this.extensionDir, file))) {
-                            attributes = require(path.join(this.extensionDir, modelName))(this.db);
+                            attrCallback = require(path.join(this.extensionDir, modelName))(this.db);
                             features.extension = true;
                         }
                         // apply lifecycle handler
                         if (this.lifeCycles[modelName]) {
-                            options = options => {
+                            optCallback = options => {
                                 this.lifeCycles[modelName].forEach(lifecycle => {
                                     lifecycle.handle(options);
                                 });
-                                return options;
                             }
                             features.lifecycle = true;
                         }
-                        const model = require(path.join(this.modelDir, modelName))(this.db, attributes, options);
+                        const model = require(path.join(this.modelDir, modelName))(this.db, attrCallback, optCallback);
                         // handle model extension
                         if (fs.existsSync(path.join(this.extendDir, file))) {
                             const ModelExtend = require(path.join(this.extendDir, modelName));
